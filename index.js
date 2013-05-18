@@ -8,9 +8,9 @@ module.exports = IMAPLineParser
  * Possible states the parser can be in (Finite State Machine)
  */
 var STATES = {
-  DEFAULT: {},
-  ATOM: {},
-  QUOTED: {}
+  DEFAULT: 0,
+  ATOM: 1,
+  QUOTED: 2
 }
 
 /**

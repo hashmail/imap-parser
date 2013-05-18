@@ -1,0 +1,27 @@
+{
+  "name": "imap-parser",
+  "version": "0.0.0",
+  "description": "A parser for IMAP line based commands",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha -R spec"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hashmail/imap-parser.git"
+  },
+  "keywords": [
+    "IMAP",
+    "email",
+    "e-mail",
+    "server",
+    "client"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "mocha": "~1.9.0"
+  }
+}
