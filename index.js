@@ -50,30 +50,8 @@ IMAPLineParser.prototype = Object.create(Stream.prototype)
  */
 IMAPLineParser.prototype.write = function(chunk){
   chunk = (chunk || '').toString('binary')
-  this._currentLine += chunk
   this._parseLine(chunk)
   return true
-}
-
-/**
- * If a literal occurs ({123}\r\n) do not parse it, since the length is known.
- * Just add it separately and it will included as the node value instead of
- * length property.
- *
- * @param {Buffer|String} chunk Data to be appended to the literal string value
- */
-IMAPLineParser.prototype.writeLiteral = function(chunk){
-  if(!this.currentNode.value){
-    this.currentNode.value = ''
-  }
-
-  if(this.currentNode.type != TYPES.LITERAL){
-    //this.currentNode.literal = this.currentNode.value
-    this.currentNode.value = ''
-    //this.currentNode.type = TYPES.LITERAL
-  }
-
-  this.currentNode.value += (chunk || '').toString('binary')
 }
 
 /**
@@ -87,18 +65,7 @@ IMAPLineParser.prototype.end = function(chunk){
     this.write(chunk)
   }
 
-  if(this.currentNode.value){
-    if(this._state == STATES.ATOM || this._state==STATES.QUOTED){
-      if(this._state == STATES.ATOM && this.currentNode.value == 'NIL'){
-        this.currentNode.value = null
-      }
-      this._branch.childNodes.push(this.currentNode)
-    }
-  }
-
-  process.nextTick(this.emit.bind(this, 'log', this._currentLine))
-  process.nextTick(this.emit.bind(this, 'line', this.finalize()))
-  this._init()
+  process.nextTick(this.emit.bind(this, 'end'))
 }
 
 /**
@@ -185,142 +152,175 @@ IMAPLineParser.prototype._parseLine = function(line){
 
     curchar = line.charAt(i)
 
-    // Check all characters one by one
-    switch(curchar){
+    if (this._expectedLiteral) {
+      this._expectedLiteral--
 
-      // Handle whitespace
-      case ' ':
-      case '\t':
-        if(this._state == STATES.QUOTED){
-          this.currentNode.value += curchar
-        }else if(this._state == STATES.ATOM && this._escapedChar){
-          this.currentNode.value += curchar
-        }else if(this._state == STATES.ATOM){
-          this._addToBranch()
-          this._state = STATES.DEFAULT
-          this._createNode()
+      if(!this.currentNode.value){
+        this.currentNode.value = ''
+      }
+
+      this.currentNode.value += curchar
+      i++
+    } else if (curchar === '\r' && line.charAt(i + 1) === '\n') {
+      var match;
+      if (match = /^\{(\d+)\}$/.exec(this.currentNode.value)) {
+        this._expectedLiteral = Number(match[1])
+        this.currentNode.value = ''
+      } else {
+        if(this.currentNode.value){
+          if(this._state == STATES.ATOM || this._state==STATES.QUOTED){
+            if(this._state == STATES.ATOM && this.currentNode.value == 'NIL'){
+              this.currentNode.value = null
+            }
+            this._branch.childNodes.push(this.currentNode)
+          }
         }
-        break
 
-      // Backspace is for escaping in quoted strings
-      case '\\':
-        if(this._escapedChar || this._state == STATES.ATOM){
-          this.currentNode.value += curchar
-        }else if(this._state == STATES.QUOTED){
-          this._escapedChar = true
-        }else if(this._state == STATES.DEFAULT){
-          this._state = STATES.ATOM
-          this._createNode(curchar)
-        }
-        break
+        process.nextTick(this.emit.bind(this, 'log', this._currentLine))
+        process.nextTick(this.emit.bind(this, 'data', this.finalize()))
+        this._init()
+      }
+      i += 2
+    } else {
+      this._currentLine += curchar
 
-      // Handle quotes, remember the quote type to allow other unescaped quotes
-      case '"':
-      case '\'':
-        if(this._escapedChar || (this._state == STATES.QUOTED && this._quoteMark != curchar)){
-          this.currentNode.value += curchar
-        }else if(this._state == STATES.DEFAULT){
-          this._quoteMark = curchar
-          this._state = STATES.QUOTED
-          this._createNode()
-        }else if(this._state == STATES.QUOTED){
-          this._addToBranch()
-          this._state = STATES.DEFAULT
-          this._createNode()
-        }else if(this._state == STATES.ATOM){
-          this._addToBranch()
-          this._quoteMark = curchar
-          this._state = STATES.QUOTED
-          this._createNode()
-        }
-        break
+      // Check all characters one by one
+      switch(curchar){
 
-      // Handle different group types
-      case '[':
-      case '(':
-      case '<':
-        if(this._escapedChar || this._state==STATES.QUOTED){
-          this.currentNode.value += curchar
+        // Handle whitespace
+        case ' ':
+        case '\t':
+          if(this._state == STATES.QUOTED){
+            this.currentNode.value += curchar
+          }else if(this._state == STATES.ATOM && this._escapedChar){
+            this.currentNode.value += curchar
+          }else if(this._state == STATES.ATOM){
+            this._addToBranch()
+            this._state = STATES.DEFAULT
+            this._createNode()
+          }
           break
-        }
 
-        if(this._state == STATES.ATOM){
-          this._addToBranch()
-        }
+        // Backspace is for escaping in quoted strings
+        case '\\':
+          if(this._escapedChar || this._state == STATES.ATOM){
+            this.currentNode.value += curchar
+          }else if(this._state == STATES.QUOTED){
+            this._escapedChar = true
+          }else if(this._state == STATES.DEFAULT){
+            this._state = STATES.ATOM
+            this._createNode(curchar)
+          }
+          break
 
-        // () gets a separate node, [] uses last node as parent
-        if(this._state == STATES.ATOM && curchar == '['){
-          this._branch = this._branch.lastNode || this._parseTree
-          this._branch.type = TYPES.PARAMS
+        // Handle quotes, remember the quote type to allow other unescaped quotes
+        case '"':
+        case '\'':
+          if(this._escapedChar || (this._state == STATES.QUOTED && this._quoteMark != curchar)){
+            this.currentNode.value += curchar
+          }else if(this._state == STATES.DEFAULT){
+            this._quoteMark = curchar
+            this._state = STATES.QUOTED
+            this._createNode()
+          }else if(this._state == STATES.QUOTED){
+            this._addToBranch()
+            this._state = STATES.DEFAULT
+            this._createNode()
+          }else if(this._state == STATES.ATOM){
+            this._addToBranch()
+            this._quoteMark = curchar
+            this._state = STATES.QUOTED
+            this._createNode()
+          }
+          break
+
+        // Handle different group types
+        case '[':
+        case '(':
+        case '<':
+          if(this._escapedChar || this._state==STATES.QUOTED){
+            this.currentNode.value += curchar
+            break
+          }
+
+          if(this._state == STATES.ATOM){
+            this._addToBranch()
+          }
+
+          // () gets a separate node, [] uses last node as parent
+          if(this._state == STATES.ATOM && curchar == '['){
+            this._branch = this._branch.lastNode || this._parseTree
+            this._branch.type = TYPES.PARAMS
+            if(!this._branch.childNodes){
+              this._branch.childNodes = []
+            }
+          }else{
+            // create new empty node
+            this._createNode(false)
+            switch(curchar){
+              case '(':
+                this.currentNode.type = TYPES.GROUP
+                break
+              case '<':
+                this.currentNode.type = TYPES.PARTIAL
+                break
+              case '[':
+                this.currentNode.type = TYPES.PARAMS
+                break
+            }
+
+            this._addToBranch()
+
+            this._branch = this.currentNode || this._parseTree
+            if(!this._branch.childNodes){
+              this._branch.childNodes = []
+            }
+          }
+
+          this._state = STATES.DEFAULT
+
+          this._createNode()
+
+          break
+        case ']':
+        case ')':
+        case '>':
+          if(this._escapedChar || this._state==STATES.QUOTED){
+            this.currentNode.value += curchar
+            break
+          }
+
+          if(this._state == STATES.ATOM){
+            this._addToBranch()
+          }
+
+          this._state = STATES.DEFAULT
+
+          this._branch = this._branch.parentNode || this._branch
           if(!this._branch.childNodes){
             this._branch.childNodes = []
           }
-        }else{
-          // create new empty node
-          this._createNode(false)
-          switch(curchar){
-            case '(':
-              this.currentNode.type = TYPES.GROUP
-              break
-            case '<':
-              this.currentNode.type = TYPES.PARTIAL
-              break
-            case '[':
-              this.currentNode.type = TYPES.PARAMS
-              break
-          }
 
-          this._addToBranch()
-
-          this._branch = this.currentNode || this._parseTree
-          if(!this._branch.childNodes){
-            this._branch.childNodes = []
-          }
-        }
-
-        this._state = STATES.DEFAULT
-
-        this._createNode()
-
-        break
-      case ']':
-      case ')':
-      case '>':
-        if(this._escapedChar || this._state==STATES.QUOTED){
-          this.currentNode.value += curchar
+          this._createNode()
           break
-        }
 
-        if(this._state == STATES.ATOM){
-          this._addToBranch()
-        }
+        // Add to existing string or create a new atom
+        default:
+          if(this._state == STATES.ATOM || this._state == STATES.QUOTED){
+            this.currentNode.value += curchar
+          }else{
+            this._state = STATES.ATOM
+            this._createNode(curchar)
+          }
+      }
 
-        this._state = STATES.DEFAULT
+      // cancel escape if it didn't happen
+      if(this._escapedChar && curchar != '\\'){
+        this._escapedChar = false
+      }
 
-        this._branch = this._branch.parentNode || this._branch
-        if(!this._branch.childNodes){
-          this._branch.childNodes = []
-        }
-
-        this._createNode()
-        break
-
-      // Add to existing string or create a new atom
-      default:
-        if(this._state == STATES.ATOM || this._state == STATES.QUOTED){
-          this.currentNode.value += curchar
-        }else{
-          this._state = STATES.ATOM
-          this._createNode(curchar)
-        }
+      i++
     }
-
-    // cancel escape if it didn't happen
-    if(this._escapedChar && curchar != '\\'){
-      this._escapedChar = false
-    }
-
-    i++
   }
 
 }
