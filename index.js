@@ -1,6 +1,6 @@
 'use strict'
 
-var Stream = require('stream').Stream
+var Transform = require('stream').Transform || require('readable-stream').Transform
 
 module.exports = IMAPLineParser
 
@@ -33,124 +33,33 @@ var TYPES = {
 function IMAPLineParser(){
   if (!(this instanceof IMAPLineParser)) return new IMAPLineParser()
 
-  Stream.call(this)
+  Transform.call(this, {objectMode: true})
   this.writable = true
 
   this._init()
 }
-IMAPLineParser.prototype = Object.create(Stream.prototype)
+IMAPLineParser.prototype = Object.create(Transform.prototype)
 
 // PUBLIC METHODS
 
 /**
  * Appends a chunk for parsing
  *
- * @param {Buffer|String} chunk Data to be appended to the parse string
- * @return {Boolean} Always returns true
- */
-IMAPLineParser.prototype.write = function(chunk){
-  chunk = (chunk || '').toString('binary')
-  this._parseLine(chunk)
-  return true
-}
-
-/**
- * Finishes current parsing and reesets internal variables. Emits 'line' event
- * with the parsed data
- *
- * @param {Buffer|String} chunk Data to be appended to the parse string
- */
-IMAPLineParser.prototype.end = function(chunk){
-  if(chunk && chunk.length){
-    this.write(chunk)
-  }
-
-  process.nextTick(this.emit.bind(this, 'end'))
-}
-
-/**
- * Generates a structured object with the data currently known. Useful if you
- * need to check parse status in the middle of the process
- *
- * @return {Array} Parsed data
- */
-IMAPLineParser.prototype.finalize = function(){
-  var tree = []
-  this._nodeWalker(this._parseTree.childNodes, tree)
-  return tree
-}
-
-// PRIVATE METHODS
-
-/**
- * Resets all internal variables and creates a new parse tree
- */
-IMAPLineParser.prototype._init = function(){
-
-  /**
-   * Current state the parser is in
-   * @private
-   */
-  this._state = STATES.DEFAULT
-
-  /**
-   * Which quote symbol is used for current quoted string
-   * @private
-   */
-  this._quoteMark = ''
-
-  /**
-   * Is the current character escaped by \
-   * @private
-   */
-  this._escapedChar = false
-
-  /**
-   * Parse tree to hold the parsed data structure
-   * @private
-   */
-  this._parseTree = {
-    childNodes: []
-  }
-
-  /**
-   * Active branch, by default it's the tree itselt
-   * @private
-   */
-  this._branch = this._parseTree
-
-  /**
-   * Hold the original line data
-   * @private
-   */
-  this._currentLine = ''
-
-  /**
-   * Starting node
-   * @private
-   */
-  this.currentNode = {
-    parentNode: this._branch,
-    value: '',
-    childNodes: []
-  }
-}
-
-/**
  * Parses the data currently known, continues from the previous state.
  * This is a token based parser. Special characters are space, backslash,
  * quotes, (), [] and <>. After every character the parseTree is updated.
  *
- * @param {String} line Data to be parsed
+ * @param {Buffer|String} chunk Data to be appended to the parse string
  */
-IMAPLineParser.prototype._parseLine = function(line){
+IMAPLineParser.prototype._transform = function(chunk, encoding, callback){
+  var line = (chunk || '').toString('binary')
 
   var i = 0
   var curchar
 
   while(i < line.length){
 
-    curchar = line.charAt(i)
+    curchar = line[i]
 
     if (this._expectedLiteral) {
       this._expectedLiteral--
@@ -161,11 +70,18 @@ IMAPLineParser.prototype._parseLine = function(line){
 
       this.currentNode.value += curchar
       i++
-    } else if (curchar === '\r' && line.charAt(i + 1) === '\n') {
+    } else if (curchar === '\r' && line[i + 1] === '\n') {
+      //see [here](http://tools.ietf.org/html/rfc3501#section-4.3) and [here](http://tools.ietf.org/html/rfc2088) for literal syntaxes
       var match;
-      if (match = /^\{(\d+)\}$/.exec(this.currentNode.value)) {
+      if (match = /^\{(\d+)(\+)?\}$/.exec(this.currentNode.value)) {
         this._expectedLiteral = Number(match[1])
         this.currentNode.value = ''
+        if (!match[1]) {
+          this._synchronizing = true
+          process.nextTick(this.emit.bind(this, 'literal'))
+        } else {
+          this._synchronizing = false
+        }
       } else {
         if(this.currentNode.value){
           if(this._state == STATES.ATOM || this._state==STATES.QUOTED){
@@ -177,7 +93,7 @@ IMAPLineParser.prototype._parseLine = function(line){
         }
 
         process.nextTick(this.emit.bind(this, 'log', this._currentLine))
-        process.nextTick(this.emit.bind(this, 'data', this.finalize()))
+        this.push(this.finalize())
         this._init()
       }
       i += 2
@@ -323,6 +239,75 @@ IMAPLineParser.prototype._parseLine = function(line){
     }
   }
 
+  return callback()
+}
+
+/**
+ * Generates a structured object with the data currently known. Useful if you
+ * need to check parse status in the middle of the process
+ *
+ * @return {Array} Parsed data
+ */
+IMAPLineParser.prototype.finalize = function(){
+  var tree = []
+  this._nodeWalker(this._parseTree.childNodes, tree)
+  return tree
+}
+
+// PRIVATE METHODS
+
+/**
+ * Resets all internal variables and creates a new parse tree
+ */
+IMAPLineParser.prototype._init = function(){
+
+  /**
+   * Current state the parser is in
+   * @private
+   */
+  this._state = STATES.DEFAULT
+
+  /**
+   * Which quote symbol is used for current quoted string
+   * @private
+   */
+  this._quoteMark = ''
+
+  /**
+   * Is the current character escaped by \
+   * @private
+   */
+  this._escapedChar = false
+
+  /**
+   * Parse tree to hold the parsed data structure
+   * @private
+   */
+  this._parseTree = {
+    childNodes: []
+  }
+
+  /**
+   * Active branch, by default it's the tree itselt
+   * @private
+   */
+  this._branch = this._parseTree
+
+  /**
+   * Hold the original line data
+   * @private
+   */
+  this._currentLine = ''
+
+  /**
+   * Starting node
+   * @private
+   */
+  this.currentNode = {
+    parentNode: this._branch,
+    value: '',
+    childNodes: []
+  }
 }
 
 /**

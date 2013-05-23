@@ -19,43 +19,28 @@ var Parser = require('imap-parser')
 var parser = new Parser()
 ```
 
-The parser is a writable stream with some extensions.
-
-### Methods
-
-#### Parser#write(data)
-
-Write some data to be parsed.
-
-#### Parser#writeLiteral(data)
-
-If a literal occurs ({123}\r\n) do not parse it, since the length is known.  Just add it separately and it will included as the node value instead of length property.
-
-#### Parser#end([data])
-
-Mark the end of the data, optionally passing one last chunk of data to be parsed.
-
-#### Parser#finalize()
-
-Generates and returns a structured object with the data currently known. Useful if you need to check parse status in the middle of the process
+The parser is a writable & readable stream.  Just pipe the data stream from the TCP connection in and read the parsed lines out as `data` events.  Each data event contains an array with the parsed data for a line.  String literals are also handled more or less automatically (see caviat in events).
 
 ### Events
 
-To register for these events, do:
-
-```js
-parser.on('EventName', function (data) {
-  
-})
-```
-
 #### log
 
-Is emitted with a string as its data.  This string is the entire unparsed content of the line.
+Is emitted with a string as its data.  This string is the entire unparsed content of the line.  It is useful for logging:
 
-#### line
+```js
+parser.on('log', function (line) {
+  console.log('c: ' + line)
+})
 
-Is emitted with a structured array as its data.  This array is the result of parsing the line.
+#### literal
+
+Is emitted when the client is sending a literal to the server but is waiting for a command continuation request:
+
+```js
+parser.on('literal', function () {
+  connection.write('+ Ready for additional command text')
+})
+```
 
 ## Licence
 
