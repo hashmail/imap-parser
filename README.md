@@ -31,6 +31,7 @@ Is emitted with a string as its data.  This string is the entire unparsed conten
 parser.on('log', function (line) {
   console.log('c: ' + line)
 })
+```
 
 #### literal
 
