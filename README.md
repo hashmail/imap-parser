@@ -2,7 +2,7 @@
 
 IMAP command parser for use on both client and server.  This is based on work in [andris9/inbox](https://github.com/andris9/inbox) and provides a parser for IMAP line based commands.
 
-[![Build Status](https://travis-ci.org/hashmail/imap-parser.png?branch=master)](https://travis-ci.org/hashmail/imap-parser)
+[![Build Status](https://img.shields.io/travis/hashmail/imap-parser/master.svg)](https://travis-ci.org/hashmail/imap-parser)
 
 ## Installation
 
