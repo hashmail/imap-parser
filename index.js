@@ -76,7 +76,7 @@ IMAPLineParser.prototype._transform = function(chunk, encoding, callback){
       if (match = /^\{(\d+)(\+)?\}$/.exec(this.currentNode.value)) {
         this._expectedLiteral = Number(match[1])
         this.currentNode.value = ''
-        if (!match[1]) {
+        if (!match[2]) {
           this._synchronizing = true
           process.nextTick(this.emit.bind(this, 'literal'))
         } else {

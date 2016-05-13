@@ -43,13 +43,23 @@ describe('types', function () {
     })
     lp.end('TAG1 "UID FETCH"\r\n')
   })
-  it('parses string literal', function (done) {
+  it('parses synchronizing string literal', function (done) {
     var lp = new Parser()
     lp.on('data', function (data) {
       assert.deepEqual(data, ['TAG1', 'ABC DEF\r\nGHI JKL', 'TAG2'])
       done()
     })
     lp.write('TAG1 {16}\r\n')
+    lp.write('ABC DEF\r\nGHI JKL')
+    lp.end('"TAG2"\r\n')
+  })
+  it('parses non-synchronizing string literal', function (done) {
+    var lp = new Parser()
+    lp.on('data', function (data) {
+      assert.deepEqual(data, ['TAG1', 'ABC DEF\r\nGHI JKL', 'TAG2'])
+      done()
+    })
+    lp.write('TAG1 {16+}\r\n')
     lp.write('ABC DEF\r\nGHI JKL')
     lp.end('"TAG2"\r\n')
   })
@@ -130,7 +140,7 @@ describe('structure', function () {
   })
 })
 
-describe('logging', function () {
+describe('events', function () {
   it('emits a log event for each line', function (done) {
     var lp = new Parser()
     lp.on('log', function (data) {
@@ -139,5 +149,12 @@ describe('logging', function () {
     })
     lp.write('TAG1 ')
     lp.end('FETCH (NAME HEADER BODY)\r\n')
+  })
+  it('emits a literal event after a synchronizing literal is received', function (done) {
+    var lp = new Parser()
+    lp.on('literal', function () {
+      done()
+    })
+    lp.end('TAG1 {16}\r\n')
   })
 })
