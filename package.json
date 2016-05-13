@@ -1,6 +1,6 @@
 {
   "name": "imap-parser",
-  "version": "0.0.2-prerelease",
+  "version": "0.0.3",
   "description": "A parser for IMAP line based commands",
   "main": "index.js",
   "directories": {
